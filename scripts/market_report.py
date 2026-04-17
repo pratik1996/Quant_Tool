@@ -47,15 +47,10 @@ SECTORAL_INDICES = {
 }
 
 
-def get_prev_trading_date():
+def get_trading_date():
+    """Return today's date in IST (script runs after 4 PM IST, market already closed)."""
     ist = pytz.timezone("Asia/Kolkata")
-    today = datetime.now(ist).date()
-    delta = 1
-    if today.weekday() == 0:   # Monday → Friday
-        delta = 3
-    elif today.weekday() == 6: # Sunday → Friday
-        delta = 2
-    return today - timedelta(days=delta)
+    return datetime.now(ist).date()
 
 
 def batch_pct_change(tickers, date):
@@ -193,7 +188,7 @@ def send_email(subject, html_body):
 
 
 def main():
-    report_date = get_prev_trading_date()
+    report_date = get_trading_date()
     print(f"Fetching data for {report_date}")
 
     # Single batch call for all sectoral indices

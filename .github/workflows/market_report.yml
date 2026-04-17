@@ -2,7 +2,7 @@ name: Daily India Market Report
 
 on:
   schedule:
-    - cron: '30 3 * * 1-5'  # 9:00 AM IST (UTC+5:30), Monday–Friday
+    - cron: '30 10 * * 1-5'  # 4:00 PM IST (UTC+5:30), Monday–Friday
   workflow_dispatch:          # Allow manual trigger for testing
 
 jobs:
