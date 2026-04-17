@@ -35,77 +35,79 @@ SECTORAL_INDICES = {
 
 
 def get_prev_trading_date():
-    """Return the most recent weekday date in IST."""
     ist = pytz.timezone("Asia/Kolkata")
     today = datetime.now(ist).date()
     delta = 1
-    if today.weekday() == 0:  # Monday → go back to Friday
+    if today.weekday() == 0:   # Monday → Friday
         delta = 3
-    elif today.weekday() == 6:  # Sunday → go back to Friday
+    elif today.weekday() == 6: # Sunday → Friday
         delta = 2
     return today - timedelta(days=delta)
 
 
-def fetch_pct_change(ticker, date):
-    """Return % change for ticker on the given date. Returns None if no data."""
-    start = date - timedelta(days=5)
+def batch_pct_change(tickers, date):
+    """Download all tickers in one API call. Returns dict of ticker -> pct_change."""
+    start = date - timedelta(days=7)
     end = date + timedelta(days=1)
-    df = yf.download(ticker, start=start, end=end, progress=False, auto_adjust=True)
-    if df.empty or len(df) < 2:
-        return None
-    df = df.sort_index()
-    # Confirm the last available date matches the requested date
-    last_date = df.index[-1].date()
-    if last_date != date:
-        return None
-    prev_close = float(df["Close"].iloc[-2])
-    last_close = float(df["Close"].iloc[-1])
-    if prev_close == 0:
-        return None
-    return round((last_close - prev_close) / prev_close * 100, 2)
 
+    df = yf.download(tickers, start=start, end=end, progress=False, auto_adjust=True)
+    if df.empty:
+        return {}
 
-def fetch_stock_changes(date):
-    """Return list of (ticker, pct_change) for all Nifty 50 stocks."""
-    results = []
-    for ticker in NIFTY50_STOCKS:
-        pct = fetch_pct_change(ticker, date)
-        if pct is not None:
-            name = ticker.replace(".NS", "")
-            results.append((name, pct))
+    # Multi-ticker download gives MultiIndex columns; single ticker gives flat columns
+    if len(tickers) == 1:
+        close_df = df[["Close"]].rename(columns={"Close": tickers[0]})
+    else:
+        close_df = df["Close"]
+
+    results = {}
+    for ticker in tickers:
+        if ticker not in close_df.columns:
+            continue
+        series = close_df[ticker].dropna()
+        if len(series) < 2:
+            continue
+        if series.index[-1].date() != date:
+            continue
+        prev_close = float(series.iloc[-2])
+        last_close = float(series.iloc[-1])
+        if prev_close == 0:
+            continue
+        results[ticker] = round((last_close - prev_close) / prev_close * 100, 2)
+
     return results
 
 
 def color_cell(value):
     if value is None:
-        return "<td style='color:#888;'>N/A</td>"
+        return "<td style='padding:6px 12px;color:#888;'>N/A</td>"
     color = "#16a34a" if value >= 0 else "#dc2626"
     arrow = "▲" if value >= 0 else "▼"
-    return f"<td style='color:{color};font-weight:600;'>{arrow} {abs(value):.2f}%</td>"
+    return f"<td style='padding:6px 12px;color:{color};font-weight:600;'>{arrow} {abs(value):.2f}%</td>"
 
 
 def build_html(report_date, sector_data, gainers, losers):
     date_str = report_date.strftime("%A, %d %B %Y")
 
-    sector_rows = ""
-    for name, pct in sector_data:
-        sector_rows += f"<tr><td style='padding:6px 12px;'>{name}</td>{color_cell(pct)}</tr>"
+    sector_rows = "".join(
+        f"<tr><td style='padding:6px 12px;'>{name}</td>{color_cell(pct)}</tr>"
+        for name, pct in sector_data
+    )
 
     def stock_rows(stocks):
-        rows = ""
-        for name, pct in stocks:
-            rows += f"<tr><td style='padding:6px 12px;'>{name}</td>{color_cell(pct)}</tr>"
-        return rows
+        return "".join(
+            f"<tr><td style='padding:6px 12px;'>{name}</td>{color_cell(pct)}</tr>"
+            for name, pct in stocks
+        )
 
-    return f"""
-<!DOCTYPE html>
+    return f"""<!DOCTYPE html>
 <html>
 <body style="font-family:Arial,sans-serif;background:#f9fafb;padding:24px;color:#111;">
   <div style="max-width:560px;margin:auto;background:#fff;border-radius:10px;
               box-shadow:0 2px 8px rgba(0,0,0,0.08);padding:28px;">
 
     <h2 style="margin-top:0;border-bottom:2px solid #e5e7eb;padding-bottom:10px;">
-      📊 India Market Report
+      India Market Report
     </h2>
     <p style="color:#6b7280;margin-top:0;">{date_str}</p>
 
@@ -147,8 +149,7 @@ def build_html(report_date, sector_data, gainers, losers):
     </p>
   </div>
 </body>
-</html>
-"""
+</html>"""
 
 
 def send_email(subject, html_body):
@@ -171,25 +172,29 @@ def main():
     report_date = get_prev_trading_date()
     print(f"Fetching data for {report_date}")
 
-    # Fetch sectoral indices
-    sector_data = []
-    for name, ticker in SECTORAL_INDICES.items():
-        pct = fetch_pct_change(ticker, report_date)
-        sector_data.append((name, pct))
+    # Single batch call for all sectoral indices
+    index_tickers = list(SECTORAL_INDICES.values())
+    index_changes = batch_pct_change(index_tickers, report_date)
 
-    # Check if market was open — Nifty 50 index is the anchor
-    nifty_pct = next((p for n, p in sector_data if n == "Nifty 50"), None)
-    if nifty_pct is None:
+    # Check if market was open using Nifty 50 as anchor
+    nifty_ticker = SECTORAL_INDICES["Nifty 50"]
+    if nifty_ticker not in index_changes:
         print("No market data available for this date (holiday or data unavailable). Skipping.")
         return
 
-    # Fetch Nifty 50 stock movements
-    stock_changes = fetch_stock_changes(report_date)
-    if not stock_changes:
+    sector_data = [(name, index_changes.get(ticker)) for name, ticker in SECTORAL_INDICES.items()]
+
+    # Single batch call for all Nifty 50 stocks
+    stock_changes_map = batch_pct_change(NIFTY50_STOCKS, report_date)
+    if not stock_changes_map:
         print("No stock data available. Skipping.")
         return
 
-    stock_changes.sort(key=lambda x: x[1], reverse=True)
+    stock_changes = sorted(
+        [(t.replace(".NS", ""), p) for t, p in stock_changes_map.items()],
+        key=lambda x: x[1],
+        reverse=True,
+    )
     gainers = stock_changes[:3]
     losers = stock_changes[-3:][::-1]
 
