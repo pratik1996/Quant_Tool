@@ -1,11 +1,24 @@
 import os
 import smtplib
+import time
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from datetime import datetime, timedelta
 
 import pytz
+import requests
 import yfinance as yf
+
+_SESSION = requests.Session()
+_SESSION.headers.update({
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.5",
+})
 
 NIFTY50_STOCKS = [
     "RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "BHARTIARTL.NS", "ICICIBANK.NS",
@@ -50,8 +63,19 @@ def batch_pct_change(tickers, date):
     start = date - timedelta(days=7)
     end = date + timedelta(days=1)
 
-    df = yf.download(tickers, start=start, end=end, progress=False, auto_adjust=True)
-    if df.empty:
+    df = None
+    for attempt in range(4):
+        df = yf.download(
+            tickers, start=start, end=end,
+            progress=False, auto_adjust=True, session=_SESSION,
+        )
+        if not df.empty:
+            break
+        wait = 2 ** attempt * 5  # 5s, 10s, 20s, 40s
+        print(f"Rate limited or empty response, retrying in {wait}s...")
+        time.sleep(wait)
+
+    if df is None or df.empty:
         return {}
 
     # Multi-ticker download gives MultiIndex columns; single ticker gives flat columns
