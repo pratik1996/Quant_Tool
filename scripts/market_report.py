@@ -58,43 +58,48 @@ def batch_pct_change(tickers, date):
     start = date - timedelta(days=7)
     end = date + timedelta(days=1)
 
-    df = None
-    for attempt in range(4):
+    for attempt in range(6):
         df = yf.download(
             tickers, start=start, end=end,
             progress=False, auto_adjust=True, session=_SESSION,
         )
-        if not df.empty:
-            break
-        wait = 2 ** attempt * 5  # 5s, 10s, 20s, 40s
-        print(f"Rate limited or empty response, retrying in {wait}s...")
-        time.sleep(wait)
-
-    if df is None or df.empty:
-        return {}
-
-    # Multi-ticker download gives MultiIndex columns; single ticker gives flat columns
-    if len(tickers) == 1:
-        close_df = df[["Close"]].rename(columns={"Close": tickers[0]})
-    else:
-        close_df = df["Close"]
-
-    results = {}
-    for ticker in tickers:
-        if ticker not in close_df.columns:
+        if df.empty:
+            wait = 2 ** min(attempt, 3) * 5  # 5s, 10s, 20s, 40s, 40s, 40s
+            print(f"Empty response on attempt {attempt + 1}, retrying in {wait}s...")
+            time.sleep(wait)
             continue
-        series = close_df[ticker].dropna()
-        if len(series) < 2:
-            continue
-        if series.index[-1].date() != date:
-            continue
-        prev_close = float(series.iloc[-2])
-        last_close = float(series.iloc[-1])
-        if prev_close == 0:
-            continue
-        results[ticker] = round((last_close - prev_close) / prev_close * 100, 2)
 
-    return results
+        # Multi-ticker download gives MultiIndex columns; single ticker gives flat columns
+        if len(tickers) == 1:
+            close_df = df[["Close"]].rename(columns={"Close": tickers[0]})
+        else:
+            close_df = df["Close"]
+
+        results = {}
+        for ticker in tickers:
+            if ticker not in close_df.columns:
+                continue
+            series = close_df[ticker].dropna()
+            if len(series) < 2:
+                continue
+            if series.index[-1].date() != date:
+                continue
+            prev_close = float(series.iloc[-2])
+            last_close = float(series.iloc[-1])
+            if prev_close == 0:
+                continue
+            results[ticker] = round((last_close - prev_close) / prev_close * 100, 2)
+
+        if results:
+            return results
+
+        # Data returned but no ticker has today's date — Yahoo Finance may still be
+        # propagating closing prices. Retry with a longer pause.
+        last_date = df.index[-1].date() if not df.empty else None
+        print(f"Data available up to {last_date}, waiting for {date} (attempt {attempt + 1}/6)...")
+        time.sleep(300)  # wait 5 minutes before retrying
+
+    return {}
 
 
 def color_cell(value):
