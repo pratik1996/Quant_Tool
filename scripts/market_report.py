@@ -48,7 +48,7 @@ SECTORAL_INDICES = {
 
 
 def get_trading_date():
-    """Return today's date in IST (script runs after 4 PM IST, market already closed)."""
+    """Return today's date in IST (script runs after 6 PM IST, market already closed)."""
     ist = pytz.timezone("Asia/Kolkata")
     return datetime.now(ist).date()
 
