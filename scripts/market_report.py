@@ -34,16 +34,16 @@ NIFTY50_STOCKS = [
 ]
 
 SECTORAL_INDICES = {
-    "Nifty 50":     "^NSEI",
-    "Nifty Bank":   "^NSEBANK",
-    "Nifty IT":     "^CNXIT",
+    "Nifty 50": "^NSEI",
+    "Nifty Bank": "^NSEBANK",
+    "Nifty IT": "^CNXIT",
     "Nifty Pharma": "^CNXPHARMA",
-    "Nifty Auto":   "^CNXAUTO",
-    "Nifty FMCG":   "^CNXFMCG",
-    "Nifty Metal":  "^CNXMETAL",
+    "Nifty Auto": "^CNXAUTO",
+    "Nifty FMCG": "^CNXFMCG",
+    "Nifty Metal": "^CNXMETAL",
     "Nifty Realty": "^CNXREALTY",
     "Nifty Energy": "^CNXENERGY",
-    "Nifty Media":  "^CNXMEDIA",
+    "Nifty Media": "^CNXMEDIA",
 }
 
 
@@ -59,14 +59,21 @@ def batch_pct_change(tickers, date):
     end = date + timedelta(days=1)
 
     df = None
-    for attempt in range(4):
-        df = yf.download(
-            tickers, start=start, end=end,
-            progress=False, auto_adjust=True, session=_SESSION,
-        )
-        if not df.empty:
-            break
-        wait = 2 ** attempt * 5  # 5s, 10s, 20s, 40s
+    for attempt in range(6):
+        try:
+            df = yf.download(
+                tickers, start=start, end=end,
+                progress=False, auto_adjust=True, session=_SESSION,
+            )
+            if df is not None and not df.empty:
+                break
+            # Empty response - treat as rate-limited
+            df = None
+        except Exception as e:
+            print(f"Download error on attempt {attempt + 1}: {e}")
+            df = None
+
+        wait = 2 ** attempt * 10  # 10s, 20s, 40s, 80s, 160s, 320s
         print(f"Rate limited or empty response, retrying in {wait}s...")
         time.sleep(wait)
 
@@ -123,7 +130,7 @@ def build_html(report_date, sector_data, gainers, losers):
 <html>
 <body style="font-family:Arial,sans-serif;background:#f9fafb;padding:24px;color:#111;">
   <div style="max-width:560px;margin:auto;background:#fff;border-radius:10px;
-              box-shadow:0 2px 8px rgba(0,0,0,0.08);padding:28px;">
+    box-shadow:0 2px 8px rgba(0,0,0,0.08);padding:28px;">
 
     <h2 style="margin-top:0;border-bottom:2px solid #e5e7eb;padding-bottom:10px;">
       India Market Report
